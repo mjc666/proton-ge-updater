@@ -3,6 +3,8 @@
 
 import hashlib
 import json
+import re
+import shutil
 import sys
 import tarfile
 import urllib.request
@@ -84,6 +86,42 @@ def extract(tar_path):
     tar_path.unlink()
 
 
+def version_key(name):
+    """Extract (major, minor) tuple from a GE-Proton directory name for sorting."""
+    match = re.match(r"GE-Proton(\d+)-(\d+)", name)
+    if match:
+        return (int(match.group(1)), int(match.group(2)))
+    return (0, 0)
+
+
+def cleanup_old_versions(keep=2):
+    """Remove old GE-Proton installs if there are more than `keep`."""
+    ge_dirs = sorted(
+        [d for d in COMPAT_DIR.iterdir() if d.is_dir() and d.name.startswith("GE-Proton")],
+        key=lambda d: version_key(d.name),
+        reverse=True,
+    )
+
+    if len(ge_dirs) <= keep:
+        return
+
+    to_remove = ge_dirs[keep:]
+    print(f"\nFound {len(ge_dirs)} GE-Proton installs (keeping newest {keep}):")
+    for d in ge_dirs[:keep]:
+        print(f"  Keep:   {d.name}")
+    for d in to_remove:
+        print(f"  Remove: {d.name}")
+
+    answer = input("\nDelete old versions? [y/N] ").strip().lower()
+    if answer != "y":
+        print("  Skipped cleanup.")
+        return
+
+    for d in to_remove:
+        shutil.rmtree(d)
+        print(f"  Deleted {d.name}")
+
+
 def main():
     print("Proton GE Updater")
     print("=" * 40)
@@ -95,22 +133,23 @@ def main():
 
     if is_installed(tag):
         print(f"  {tag} is already installed. Nothing to do.")
-        return
+    else:
+        print(f"  {tag} not found locally. Installing...")
 
-    print(f"  {tag} not found locally. Installing...")
+        COMPAT_DIR.mkdir(parents=True, exist_ok=True)
+        tar_path = COMPAT_DIR / f"{tag}.tar.gz"
 
-    COMPAT_DIR.mkdir(parents=True, exist_ok=True)
-    tar_path = COMPAT_DIR / f"{tag}.tar.gz"
+        download_with_progress(release["tarball_url"], tar_path)
 
-    download_with_progress(release["tarball_url"], tar_path)
+        if release["checksum_url"]:
+            print("  Verifying SHA-512 checksum...")
+            verify_checksum(tar_path, release["checksum_url"])
+            print("  Checksum OK.")
 
-    if release["checksum_url"]:
-        print("  Verifying SHA-512 checksum...")
-        verify_checksum(tar_path, release["checksum_url"])
-        print("  Checksum OK.")
+        extract(tar_path)
+        print(f"  {tag} installed successfully.")
 
-    extract(tar_path)
-    print(f"  {tag} installed successfully.")
+    cleanup_old_versions()
 
 
 if __name__ == "__main__":
