@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Check for and install the latest GloriousEggroll Proton-GE release."""
 
+import argparse
 import hashlib
 import json
 import re
 import shutil
+import subprocess
 import sys
 import tarfile
 import urllib.request
@@ -94,7 +96,7 @@ def version_key(name):
     return (0, 0)
 
 
-def cleanup_old_versions(keep=2):
+def cleanup_old_versions(keep=2, auto=False):
     """Remove old GE-Proton installs if there are more than `keep`."""
     ge_dirs = sorted(
         [d for d in COMPAT_DIR.iterdir() if d.is_dir() and d.name.startswith("GE-Proton")],
@@ -112,17 +114,46 @@ def cleanup_old_versions(keep=2):
     for d in to_remove:
         print(f"  Remove: {d.name}")
 
-    answer = input("\nDelete old versions? [y/N] ").strip().lower()
-    if answer != "y":
-        print("  Skipped cleanup.")
-        return
+    if not auto:
+        answer = input("\nDelete old versions? [y/N] ").strip().lower()
+        if answer != "y":
+            print("  Skipped cleanup.")
+            return
 
     for d in to_remove:
         shutil.rmtree(d)
         print(f"  Deleted {d.name}")
 
 
+def send_notification(tag, email):
+    """Send an email notification about the update via local sendmail."""
+    message = (
+        f"Subject: Proton GE updated to {tag}\n"
+        f"To: {email}\n"
+        f"\n"
+        f"GE-Proton has been updated to {tag}.\n"
+        f"Installed to: {COMPAT_DIR / tag}\n"
+    )
+    try:
+        subprocess.run(
+            ["sendmail", "-t"],
+            input=message.encode(),
+            check=True,
+            timeout=30,
+        )
+        print(f"  Notification sent to {email}")
+    except FileNotFoundError:
+        print("  Warning: sendmail not found, skipping notification", file=sys.stderr)
+    except subprocess.CalledProcessError as e:
+        print(f"  Warning: sendmail failed (exit {e.returncode}), skipping notification", file=sys.stderr)
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Check for and install the latest GE-Proton release")
+    parser.add_argument("--auto", action="store_true", help="Run unattended (auto-cleanup, no prompts)")
+    parser.add_argument("--email", metavar="ADDR", help="Send email notification on update")
+    args = parser.parse_args()
+
     print("Proton GE Updater")
     print("=" * 40)
 
@@ -149,7 +180,10 @@ def main():
         extract(tar_path)
         print(f"  {tag} installed successfully.")
 
-    cleanup_old_versions()
+        if args.email:
+            send_notification(tag, args.email)
+
+    cleanup_old_versions(auto=args.auto)
 
 
 if __name__ == "__main__":

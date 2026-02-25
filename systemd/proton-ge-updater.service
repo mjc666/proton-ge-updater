@@ -1,0 +1,8 @@
+[Unit]
+Description=Check for and install latest GE-Proton release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/proton_ge_updater.py --auto --email your@email.com
